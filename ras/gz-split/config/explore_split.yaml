@@ -1,0 +1,172 @@
+# explore_lite for the guest side of the split topology -- the
+# "Explore_lite(autonomous)" drive mode in the TSP test-environment figure, the
+# counterpart to send_goal.py's scripted tour.
+#
+# Read off ros-jazzy-explore-lite 1.0.0-0noble, not off upstream's README. The node
+# declares twelve parameters and every one is set here, because the code defaults
+# are not visible in the .deb and an omitted parameter is an unknown value rather
+# than a documented one. The list is the declare_parameter name literals in the
+# binary, confirmed with
+#   strings -a /opt/ros/jazzy/lib/explore_lite/explore | grep -x ...
+# and the action it drives is navigate_to_pose, likewise from the binary -- the
+# same server send_goal.py uses, which is why the two drive modes are exclusive.
+#
+# THE TWO TIMING PARAMETERS ARE NOT IN THE SAME CLOCK, which is the trap here:
+#   planner_frequency  is WALL Hz, so RTF_LIMIT does not stretch it. The binary is
+#                      stripped, so this is read off the typeinfo names in .rodata
+#                      rather than off symbols -- `nm -u` returns nothing here and
+#                      both timer factories are templates that leave no undefined
+#                      symbol either way:
+#                        strings -a /opt/ros/jazzy/lib/explore_lite/explore \
+#                          | grep -c N6rclcpp9WallTimerIZN7explore7ExploreC   -> 2
+#                      i.e. rclcpp::WallTimer instantiated on a lambda declared in
+#                      explore::Explore's own constructor. The matching
+#                      GenericTimer name is there too, because WallTimer derives
+#                      from it.
+#   progress_timeout   probably SIM seconds, but not settled. _ZNK6rclcpp4Node3nowEv
+#                      is in the binary's dynamic undefined table, so Node::now()
+#                      -- sim time under use_sim_time -- is called somewhere; which
+#                      value it is compared against cannot be read out of a
+#                      stripped binary with no explore.cpp shipped. The value below
+#                      is therefore chosen to be correct under BOTH readings.
+# Same class of mistake nav2_split.yaml:14-19 warns about, and the reason
+# controller_frequency needed its own note in run_container_loop.sh.
+#
+# The node name is explore_node (upstream's own params_costmap.yaml keys on it),
+# but the wildcard is used so a rename or a namespace cannot silently drop the
+# whole file.
+
+/**:
+  ros__parameters:
+    # Mandatory. getRobotPose() stamps its TF query at this->now(); with wall time
+    # that is 1.7e9 s against TF stamps of ~200 s of sim time and every lookup
+    # extrapolates forever. progress_timeout below is in this clock too. Every
+    # other guest node agrees (nav2_split.yaml:23, mapper_params_tcg.yaml:38); the
+    # documented exception is map_saver (run_split.sh:424-427).
+    use_sim_time: true
+
+    # base_link is the code default and it is wrong for BOTH robots here: Gazebo's
+    # TB3 SDF roots the chain at base_footprint and the TB4 URDF hangs
+    # base_footprint off base_link. Same value as nav2_split.yaml:145 and
+    # mapper_params_tcg.yaml:53. Wrong value = the constructor blocks on TF
+    # forever (costmap_client.h:59-61).
+    robot_base_frame: base_footprint
+
+    # slam_toolbox's /map, not Nav2's global costmap. Both are available --
+    # global_costmap publishes at 1 Hz (nav2_split.yaml:158) -- and /map wins on
+    # four counts:
+    #   * it IS the grid the gate scores. score_map.py's coverage counts the saved
+    #     map's non-unknown cells (score_map.py:227), which are exactly the cells
+    #     explore_lite stops producing frontiers for, so exploration drives the
+    #     number the run is judged on with no second grid in between.
+    #   * 0.2 Hz against the costmap's 1 Hz: /map is republished every
+    #     map_update_interval 5.0 s of sim time (mapper_params_tcg.yaml:60), a
+    #     fifth of the OccupancyGrid deserialisation on a guest where one periodic
+    #     subscription measured 40-52% of an emulated core.
+    #   * /map is TRANSIENT_LOCAL + RELIABLE (send_goal.py:65-73), which satisfies
+    #     any QoS a subscriber can request. explore_lite's costmap subscription QoS
+    #     is NOT readable from the .deb, and its constructor blocks until the first
+    #     costmap arrives -- an unverifiable QoS request is a silent hang, not an
+    #     error message.
+    #   * it does not depend on a Nav2 costmap publish_frequency, which has broken
+    #     this rig before (nav2_split.yaml:150-157).
+    # What it costs: /map carries no inflation, so a frontier centroid can sit
+    # within robot_radius 0.22 of a wall and bt_navigator will abort that goal.
+    # explore_lite blacklists an aborted goal ("Adding current goal to black
+    # list") and moves on, so the cost is bounded at one wasted leg per such
+    # frontier. If the log shows that repeatedly, switch to
+    # /global_costmap/costmap + /global_costmap/costmap_updates -- and record
+    # `ros2 topic info -v /global_costmap/costmap` first, because that QoS is a
+    # guess.
+    # Absolute names: the node runs in the root namespace today, and a relative
+    # name would follow it if that ever changes.
+    costmap_topic: /map
+    # slam_toolbox publishes no OccupancyGridUpdate at all -- the only topic
+    # literals in libtoolbox_common.so are /map and
+    # slam_toolbox/graph_visualization -- so this subscription stays idle and the
+    # full-map callback does all the work. Set anyway: the code default is the
+    # relative name "costmap_updates", which means something else here.
+    costmap_updates_topic: /map_updates
+
+    # 0.3 is upstream's value (share/explore_lite/config/params.yaml:13) and it is
+    # a local-machine number. Every transform tolerance in this rig is 5.0
+    # (nav2_split.yaml:63, :81, :97, :159, :207) because TF crosses a TCP link and
+    # the guest's clock runs 0.5-3.1 s behind the host's. This one feeds
+    # Costmap2DClient::getRobotPose(), called once per planner tick; at 0.3 s every
+    # tick fails with "No Transform available Error looking up robot pose" and the
+    # node never plans.
+    transform_tolerance: 5.0
+
+    # WALL Hz. One tick is a full frontier BFS over the whole grid -- 384x384 for
+    # tb3_sandbox, 604x307 for depot -- on a TCG core, and there is no point
+    # running it faster than /map changes, which is every 5 s of sim time. It also
+    # bounds the dead time between finishing one frontier goal and issuing the
+    # next; legs cost 32-36 s wall (RUNLOG.md, "Step 8 again"), so a 5 s gap is
+    # ~15% overhead. Upstream ships 0.15 (params.yaml:8).
+    planner_frequency: 0.2
+
+    # Deliberately LARGER than Nav2's own patience, and sized to be right whichever
+    # clock it is read in -- which is the point, since the .deb cannot tell us.
+    # controller_server's SimpleProgressChecker already allows 120 s to move 0.5 m
+    # (nav2_split.yaml:48-50), so anything below that makes explore_lite blacklist
+    # frontiers Nav2 is still legitimately working on, and each abandoned frontier
+    # costs a whole leg. Legs measured here: 32-36 s wall for tb3, 16-19 s for tb4.
+    #   read as WALL: 150 s > Nav2's 120 s, so Nav2 still fails first.
+    #   read as SIM : 150 s of sim is 300 s of wall at RTF_LIMIT=0.5, longer still.
+    # Upstream's 30.0 is wrong under either reading: it fires mid-leg. When Nav2
+    # fails first it returns a clean abort, which explore_lite handles by
+    # blacklisting the goal ("Adding current goal to black list").
+    progress_timeout: 150.0
+
+    # Frontier cost weights, at upstream's shipped values (params.yaml:10-12).
+    # potential_scale 3.0 against gain_scale 1.0 means "prefer the nearest frontier
+    # over the largest", which is the right trade when every leg costs 32-36 s
+    # wall: minimise drive time per unit of new coverage. orientation_scale 0.0 is
+    # upstream's own value -- the parameter is declared and contributes nothing at
+    # zero.
+    potential_scale: 3.0
+    gain_scale: 1.0
+    orientation_scale: 0.0
+
+    # Metres of frontier boundary on a 0.05 m grid (mapper_params_tcg.yaml,
+    # nav2_split.yaml), so 0.50 m is 10 cells. Upstream ships 0.75 in params.yaml
+    # and 0.50 in params_costmap.yaml.
+    #
+    # MEASURED, 2026-08-19, and this is the parameter that decides whether the mode
+    # works at all. 0.30 was tried first, on the argument that upstream's 0.75 m is
+    # wider than the 0.44 m gap the robot can physically drive through and so
+    # discards reachable frontiers. That argument is about REACHABILITY and it
+    # ignored WORTH: at 0.30 m the search accepts specks of frontier a few cells
+    # across, `potential_scale: 3.0` then prefers the nearest of them, and the
+    # nearest is always at the robot's own feet. The run churned for six minutes --
+    # Nav2 accepted 243 goals, every one about 0.13 m away, e.g.
+    #   "Begin navigating from current location (0.00, -0.00) to (-0.10, 0.08)"
+    #   "Reached the goal!"
+    # -- and the robot never moved at all. 0.50 is upstream's own costmap value and
+    # is 10 cells, still well above scan noise and still narrower than the smallest
+    # doorway that matters here.
+    #
+    # If this ever needs lowering again, lower `potential_scale` with it: distance
+    # dominating frontier size is what turns small frontiers into a standstill.
+    #
+    # NOT verified from the .deb: the cells-to-metres conversion is in
+    # frontier_search.cpp, which the package does not ship. The header holds
+    # min_frontier_size_ as a double beside a referenced Costmap2D::getResolution(),
+    # and both upstream files use 0.5-0.75 on 0.05 m grids, which only makes sense
+    # in metres.
+    min_frontier_size: 0.50
+
+    # rviz2 is not packaged for riscv64 (slam_nav.launch.py:21) and nothing in this
+    # rig subscribes to /explore/frontiers. Upstream ships true, which builds and
+    # serialises a MarkerArray of two markers per frontier every tick for no
+    # reader.
+    visualize: false
+
+    # Upstream ships true (params.yaml:4). False here: the return trip is one more
+    # unbounded leg AFTER the useful work, at 32-36 s wall per leg, and it would
+    # have to fit inside EXPLORE_TIMEOUT. The map is saved immediately afterwards
+    # and map_saver does not care where the robot parked. It also keeps the gate
+    # simple -- the run reports "no frontiers left" rather than gating on
+    # RETURNED_TO_ORIGIN, so a failed return leg cannot fail a successful
+    # exploration.
+    return_to_init: false

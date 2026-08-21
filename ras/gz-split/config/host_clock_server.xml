@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Fast DDS profile for clock_decimator.py on the HOST side. Port 42101.
+
+Why a second file and a second port rather than reusing host_tcp_server.xml.
+
+In this topology the guest can only dial out, so a host participant is reachable
+from the guest only if it owns a TCP acceptor. A listening port has exactly one
+owner: whichever participant binds it first wins, and every later one logs
+
+    TCPTransport Error binding at port: (42100) with msg: bind: Address already
+    in use -> Function create_acceptor_socket
+
+and then runs with no acceptor at all, discoverable but unreachable. Measured
+2026-08-17: with the decimator sharing host_tcp_server.xml, the guest listed
+/clock and never received a sample, while the decimator itself was forwarding
+normally (in 1903, out 351).
+
+So the rule for this design is one listening port per host participant that has
+to reach the guest, and a matching entry in the guest's initialPeersList:
+
+    42100  parameter_bridge   /scan /odom /tf, and /cmd_vel inbound
+    42101  clock_decimator    /clock
+    42102  cmd_vel_watchdog   see host_cmdvel_server.xml. Added 2026-08-19
+                    after the tb4 run proved this note right: the watchdog was
+                    still on 42100, failed to bind, and ran the whole drive
+                    with no acceptor
+
+Selected per process by environment, not by profile name:
+    FASTRTPS_DEFAULT_PROFILES_FILE=/work/config/host_clock_server.xml
+Node-name-based profile lookup would work too, but an env var is per-process and
+leaves no doubt about which participant got which port.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>clock_server</transport_id>
+        <type>TCPv4</type>
+
+        <listening_ports>
+          <port>42101</port>
+        </listening_ports>
+
+        <!-- Same reason as host_tcp_server.xml: without it the announced locators
+             come from this host's own interfaces, none of which SLIRP routes from
+             the guest, and the link comes up and delivers nothing. -->
+        <wan_addr>10.0.2.2</wan_addr>
+
+        <enable_tcp_nodelay>true</enable_tcp_nodelay>
+        <keep_alive_frequency_ms>30000</keep_alive_frequency_ms>
+        <keep_alive_timeout_ms>120000</keep_alive_timeout_ms>
+        <calculate_crc>false</calculate_crc>
+        <check_crc>false</check_crc>
+        <max_logical_port>200</max_logical_port>
+        <logical_port_range>50</logical_port_range>
+        <maxMessageSize>65000</maxMessageSize>
+        <sendBufferSize>1048576</sendBufferSize>
+        <receiveBufferSize>1048576</receiveBufferSize>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="vela_host_clock" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>clock_server</transport_id>
+        </userTransports>
+
+        <!-- true, and required here specifically: this node SUBSCRIBES to
+             /clock_gz from parameter_bridge, which is another host process. With
+             builtin transports off it would have no SHM and no UDP and could not
+             reach the bridge at all, so it would publish a clock derived from
+             nothing. -->
+        <useBuiltinTransports>true</useBuiltinTransports>
+      </rtps>
+    </participant>
+
+    <!-- Clock samples are tiny, so fragmentation is not the concern it is on
+         host_tcp_server.xml. Kept asynchronous anyway so both host writers behave
+         the same way and a future larger message here cannot hit the silent drop
+         described in that file. -->
+    <data_writer profile_name="vela_clock_async" is_default_profile="true">
+      <qos>
+        <publishMode>
+          <kind>ASYNCHRONOUS</kind>
+        </publishMode>
+      </qos>
+    </data_writer>
+
+  </profiles>
+</dds>

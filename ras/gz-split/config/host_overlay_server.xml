@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Fast DDS profile for detection_overlay.py on the HOST side. Port 42104.
+
+Its own file for the same reason rviz2 got one: two participants cannot share a
+listening port. Both are started by run_demo.sh, seconds apart, so putting them
+on one profile makes the second one lose its acceptor with nothing but a line in
+a log nobody reads. The overlay subscribes to /detection_result from the guest's
+yolo_node and publishes /detection_image for RViz, so it needs to be reachable
+from the guest exactly as rviz2 does.
+
+Why a fourth file rather than reusing host_tcp_server.xml: a TCP listening port
+has exactly one owner. run_split.sh's parameter_bridge owns 42100, and a second
+participant declaring it logs "TCPTransport Error binding at port: (42100)
+Address already in use" and then runs with no acceptor at all: discoverable,
+unreachable, and healthy-looking. rviz2 was started on host_tcp_server.xml from
+the day RVIZ=1 was added, so in a split run it has never been able to receive
+anything from the guest: /map, /plan and the guest's map->odom all come from
+there, and demo.rviz's Fixed Frame is map, so the pane was blank by
+construction. cmd_vel_watchdog.py lost two days to the same defect (42102).
+
+Read by scripts/run_demo.sh only. The measurement runners are untouched:
+run_split.sh keeps host_tcp_server.xml for the bridge, run_dds_check.sh keeps it
+for G3/G4, and run_container_loop.sh loads no profile at all.
+
+The matching guest locator is generated, not committed: run_split.sh writes
+guest_tcp_client_demo.xml from guest_tcp_client.xml when GUI=1, so the profile
+G3/G4/G5 were measured on stays byte-identical and there is one source of truth.
+Load with:  export FASTRTPS_DEFAULT_PROFILES_FILE=/work/config/host_overlay_server.xml
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>overlay_server</transport_id>
+        <type>TCPv4</type>
+        <!-- The presence of listening_ports elects this side as the TCP server.
+             42100 parameter_bridge, 42101 clock_decimator, 42102 cmd_vel_watchdog,
+             42103 rviz2, 42104 here. -->
+        <listening_ports>
+          <port>42104</port>
+        </listening_ports>
+        <!-- SLIRP routes exactly one address from the guest to this host. Without
+             wan_addr the guest connects, discovers the participant, then has no
+             reachable locator to match and sits silent. See host_tcp_server.xml. -->
+        <wan_addr>10.0.2.2</wan_addr>
+        <enable_tcp_nodelay>true</enable_tcp_nodelay>
+        <keep_alive_frequency_ms>30000</keep_alive_frequency_ms>
+        <keep_alive_timeout_ms>120000</keep_alive_timeout_ms>
+        <calculate_crc>false</calculate_crc>
+        <check_crc>false</check_crc>
+        <max_logical_port>200</max_logical_port>
+        <logical_port_range>50</logical_port_range>
+        <!-- The defaults left every topic above ~700 B silently undelivered on
+             this link (host_tcp_server.xml). the overlay publishes a 320x240 rgb8 Image,
+             about 230 kB, which is well past the defaults. -->
+        <maxMessageSize>65000</maxMessageSize>
+        <sendBufferSize>1048576</sendBufferSize>
+        <receiveBufferSize>1048576</receiveBufferSize>
+      </transport_descriptor>
+
+      <!-- Explicit, because the builtin transports are off below and the viewer
+           still has to reach the bridge in the OTHER container. Declaring UDPv4
+           by hand gives multicast discovery and host-local data delivery without
+           bringing shared memory back. -->
+      <transport_descriptor>
+        <transport_id>udp_local</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="vela_host_overlay" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>overlay_server</transport_id>
+          <transport_id>udp_local</transport_id>
+        </userTransports>
+        <!-- false, and this is the one place in the rig where false is right.
+             The viewer runs in a SECOND container. Docker gives it a private IPC
+             namespace and therefore its own /dev/shm, so a shared-memory locator
+             announced by either side names a segment the other cannot open.
+             Measured 2026-08-19: see host_rviz_server.xml, same container, same
+             result. Turning the builtin set off removes SHM from the choices;
+             the explicit UDPv4 descriptor above keeps everything SHM was doing.
+             The 08-17 decision to flip host_tcp_server.xml back to true does not
+             apply here: that participant is in the same container as the bridge,
+             and it had no explicit UDP transport to fall back on. -->
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+
+    <!-- Same block as host_tcp_server.xml, kept for symmetry rather than for a
+         measured effect: rmw_fastrtps sets publish mode from
+         RMW_FASTRTPS_PUBLICATION_MODE and ignores an XML data_writer profile
+         unless RMW_FASTRTPS_USE_QOS_FROM_XML is set, which nothing here sets.
+         The viewer publishes almost nothing anyway. -->
+    <data_writer profile_name="vela_overlay_async" is_default_profile="true">
+      <qos>
+        <publishMode>
+          <kind>ASYNCHRONOUS</kind>
+        </publishMode>
+      </qos>
+    </data_writer>
+
+  </profiles>
+</dds>

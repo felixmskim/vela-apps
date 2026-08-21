@@ -1,0 +1,58 @@
+# Viewer layer, for showing the simulation to people.
+#
+#   docker build -f Dockerfile.demo -t vela-gzsim:demo .
+#
+# Deliberately a separate image. vela-gzsim:jazzy is digest-pinned and its apt
+# manifest is the reproducibility record for every measured number; adding a VNC
+# server and ffmpeg to it would change that record for a reason unrelated to
+# measurement. This layer sits on top and is thrown away when the demo ends.
+#
+# A GUI run is NOT a measurement run. `gz sim -g` renders the scene on the same
+# CPU as the physics, and the world has to be rebuilt with SceneBroadcaster to
+# have anything to send it. Both cost real-time factor. Every number in RUNLOG.md
+# comes from a headless run.
+#
+# Qt 5 and libqxcb are already in the base image -- ros-jazzy-slam-toolbox drags
+# them in, the over-packaging DESIGN.md files as a defect. Verified in the built
+# image: /usr/lib/x86_64-linux-gnu/qt5/plugins/platforms/libqxcb.so is present and
+# libgz-gui8.so.8.4.0 has zero unresolved libraries. Five things are missing:
+#   x11vnc   exports the Xvfb display so a viewer elsewhere can watch it live
+#   ffmpeg   -f x11grab, so the demo survives as a file that can be replayed
+#   xdotool  resizes the Gazebo window to fill the display. There is no window
+#            manager on a bare Xvfb, so the GUI opens at its own default size --
+#            about 1000x845 -- and a 1920x1080 capture came out two-thirds black
+#            border. Also parks the pointer in a corner, because the cursor
+#            hovering over the entity tree raises a tooltip that then sits in
+#            every frame of the recording.
+#   rviz2    the Gazebo GUI shows the simulation; it cannot show what the GUEST
+#            believes. The SLAM map, the plan Nav2 computed and the detections
+#            are ROS topics coming back over the TCP link, and RViz is what makes
+#            all three visible at once. Not packaged for riscv64 -- see
+#            ../workload-nav2.md -- which is exactly why it belongs on this side.
+#   teleop-twist-keyboard
+#            "Host Teleop(manual)", the first of the two drive modes the TSP
+#            test-environment figure names. It belongs on the HOST in that figure
+#            and it has to: there is no riscv64 build of it, and /cmd_vel is
+#            bridged ROS_TO_GZ on this side, so a host publisher reaches DiffDrive
+#            without crossing the TCP link at all.
+#
+# Why all five are in THIS image and not in ../Dockerfile: that one builds the
+# measurement image, whose resolved package set is recorded as
+# /opt/vela/apt-manifest.txt and cited by RUNLOG.md as the environment G1-G7 were
+# measured in. Adding a package there rewrites that artefact and forces a
+# docker rm/run of the long-lived vela-gz container, which would also discard the
+# 101 MB Depot Fuel cache in its writable layer. This image writes its own
+# manifest, apt-manifest-demo.txt, and a GUI or hand-driven run is not a
+# measurement run anyway.
+ARG BASE=vela-gzsim:jazzy
+FROM ${BASE}
+
+USER root
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      x11vnc ffmpeg xdotool ros-jazzy-rviz2 ros-jazzy-teleop-twist-keyboard \
+ && rm -rf /var/lib/apt/lists/* \
+ && dpkg-query -W -f='${Package}\t${Version}\n' | sort > /opt/vela/apt-manifest-demo.txt
+USER vela
+WORKDIR /work
+CMD ["sleep", "infinity"]

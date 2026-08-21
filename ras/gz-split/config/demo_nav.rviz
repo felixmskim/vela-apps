@@ -1,0 +1,137 @@
+# RViz layout for a RECORDING. Generated from demo.rviz by removing two things,
+# and the reason for each is what makes this a separate file rather than an edit:
+#
+#   Panels:                 rviz only creates the Displays and Views docks if the
+#                           config lists them. Measured on a 1920x1080 capture
+#                           tiled with the Gazebo GUI: those two docks plus the
+#                           Image widget took about 450 px of an 864 px pane, so
+#                           the map -- the thing the pane exists for -- got the
+#                           remaining ~410 px. Without them the 3D view is the
+#                           whole pane. The cost is that a live viewer cannot
+#                           tick displays on and off; use demo.rviz for that.
+#
+#   the Image display       /detection_image only exists when a detector is
+#                           running in the guest AND run_demo.sh started
+#                           detection_overlay.py. With neither, rviz still builds
+#                           the display's dock widget -- Enabled: false does not
+#                           prevent that, verified 2026-08-19 -- and a grey
+#                           "No Image" tile sits in the corner of every frame.
+#
+# run_demo.sh records with this file whether or not the detector is running:
+# under OVERLAY=1 the detections get their own small window on the same display
+# (detection_overlay.py --show), so they cost the map no pane at all. demo.rviz
+# is the hand-driven layout and run_demo.sh never selects it.
+# Everything else, including the topic notes, is demo.rviz's; read them there.
+
+# RViz layout for the demonstration: what the GUEST believes, beside what the
+# simulator is doing.
+#
+# The Gazebo GUI shows ground truth -- the robot moving through the world. It
+# cannot show the map slam_toolbox built, the path Nav2 planned, or what the
+# detector found, because those are the guest's opinions and they arrive back
+# over the TCP link. This file puts all three in one window.
+#
+# Where each topic comes from, because it decides what the guest pays for:
+#
+#   /scan             the HOST bridge. RViz reads it locally, guest cost zero.
+#   /map              the GUEST (slam_toolbox). TRANSIENT_LOCAL, ~11 kB per
+#                     update -- the durability MUST match or the display stays
+#                     empty with no error shown.
+#   /plan             the GUEST (planner_server), on each replan.
+#   /detection_image  the HOST (detection_overlay.py). The guest publishes only
+#                     the small Detection2DArray; the drawing happens here.
+#
+# Load it with:  rviz2 -d /work/config/demo.rviz
+
+Visualization Manager:
+  Class: ""
+  Name: root
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 10
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 20
+      Color: 100; 100; 100
+
+    - Class: rviz_default_plugins/Map
+      Name: SLAM map
+      Enabled: true
+      Alpha: 0.8
+      Color Scheme: map
+      Topic:
+        Value: /map
+        Depth: 1
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+
+    - Class: rviz_default_plugins/LaserScan
+      Name: Lidar
+      Enabled: true
+      Size (m): 0.04
+      Style: Points
+      Color: 255; 90; 90
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Topic:
+        Value: /scan
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+
+    - Class: rviz_default_plugins/Path
+      Name: Nav2 plan
+      Enabled: true
+      Color: 90; 230; 120
+      Line Style: Lines
+      Topic:
+        Value: /plan
+        Depth: 1
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: true
+      Show Axes: true
+      Show Arrows: false
+      Marker Scale: 0.4
+
+
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      # 7.5 frames tb3_sandbox, the world the recording recipe uses; depot is
+      # roughly three times the span and wants ~30. One saved view cannot suit
+      # both, and the map is what the pane is for.
+      Distance: 7.5
+      # Map-frame centre of the tb3 arena: world (0,0) minus the (-2,-0.5) spawn.
+      # Take 4 measured X: 1 as slightly right-of-centre once the mapped extent
+      # reached ~4 m; a circuit lap maps the whole arena, so centre on it.
+      Focal Point:
+        X: 2
+        Y: 0.5
+        Z: 0
+      Pitch: 1.2
+      Yaw: 1.6
+      Target Frame: map
+
+# Deliberately small: run_demo.sh tiles both windows with xdotool once they
+# exist, and until it does, whatever is written here is what sits on the display.
+# At 1500x900 RViz covered the Gazebo GUI completely on a bare Xvfb, which has no
+# window manager to arrange them. Do not put X/Y here; placement is the runner's.
+Window Geometry:
+  Height: 700
+  Width: 640

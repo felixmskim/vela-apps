@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Fast DDS profile for the GUEST side. See host_tcp_server.xml for why TCP.
+
+Load with:  export FASTRTPS_DEFAULT_PROFILES_FILE=$HOME/gz_split/guest_tcp_client.xml
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>tcp_client</transport_id>
+        <type>TCPv4</type>
+
+        <!-- No listening_ports: this side dials out only. That is precisely the
+             shape SLIRP permits. An inbound listener here would need a hostfwd
+             rule and therefore a QEMU restart. -->
+
+        <enable_tcp_nodelay>true</enable_tcp_nodelay>
+        <keep_alive_frequency_ms>30000</keep_alive_frequency_ms>
+        <keep_alive_timeout_ms>120000</keep_alive_timeout_ms>
+        <calculate_crc>false</calculate_crc>
+        <check_crc>false</check_crc>
+        <max_logical_port>200</max_logical_port>
+        <logical_port_range>50</logical_port_range>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="vela_guest_tcp" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>tcp_client</transport_id>
+        </userTransports>
+
+        <!-- true, unlike the host side. Nav2 plus slam_toolbox is nine local
+             participants; none of them has a TCP listening port, so with the
+             builtin SHM and UDP transports removed they could not discover
+             each other and the whole in-guest stack would go dark. Keeping
+             them preserves exactly the intra-guest path Milestone A/B proved. -->
+        <useBuiltinTransports>true</useBuiltinTransports>
+
+        <builtin>
+          <!-- One entry per host listening port. A host participant is reachable
+               from here only if it owns a TCP acceptor, and a port has exactly one
+               owner, so each host participant that has to reach the guest gets its
+               own port and its own entry here. Omitting one is silent: the topic
+               appears in `ros2 topic list` and no sample ever arrives.
+                 42100  parameter_bridge   /scan /odom /tf, /cmd_vel inbound
+                 42101  clock_decimator    /clock
+                 42102  cmd_vel_watchdog   /cmd_vel inbound
+               See host_clock_server.xml. -->
+          <initialPeersList>
+            <locator>
+              <tcpv4>
+                <!-- SLIRP's fixed address for the host. -->
+                <address>10.0.2.2</address>
+                <physical_port>42100</physical_port>
+              </tcpv4>
+            </locator>
+            <locator>
+              <tcpv4>
+                <address>10.0.2.2</address>
+                <physical_port>42101</physical_port>
+              </tcpv4>
+            </locator>
+            <locator>
+              <tcpv4>
+                <address>10.0.2.2</address>
+                <physical_port>42102</physical_port>
+              </tcpv4>
+            </locator>
+            <locator>
+              <tcpv4>
+                <address>10.0.2.2</address>
+                <physical_port>42103</physical_port>
+              </tcpv4>
+            </locator>
+            <locator>
+              <tcpv4>
+                <address>10.0.2.2</address>
+                <physical_port>42104</physical_port>
+              </tcpv4>
+            </locator>
+            <locator>
+              <tcpv4>
+                <address>10.0.2.2</address>
+                <physical_port>42105</physical_port>
+              </tcpv4>
+            </locator>
+          </initialPeersList>
+        </builtin>
+      </rtps>
+    </participant>
+
+  </profiles>
+</dds>

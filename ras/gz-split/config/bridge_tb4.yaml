@@ -1,0 +1,74 @@
+# ros_gz_bridge config for TurtleBot4 in the split topology.
+#
+# Derived from nav2_minimal_tb4_sim/configs/tb4_bridge.yaml with two removals:
+#
+#   /rgbd_camera/camera_info   THE IMPORTANT ONE. Bridging it is by itself enough
+#                              to make the RGBD camera render every frame:
+#                              RgbdCameraSensor::HasConnections() returns
+#                              colour OR depth OR points OR *info*, and gz-sim
+#                              only deactivates a sensor with no connections
+#                              (Sensors.cc:480, :1282). At 320x240 and 10 Hz,
+#                              rendering colour and depth costs ~1.54 Mpix/s,
+#                              roughly five times the lidar. There is no
+#                              metadata-only option -- the topic has to go.
+#                              make_world.py also deletes the oakd links, so with
+#                              both changes nothing requests a camera at all.
+#
+#   /joint_states              nothing in this stack consumes it, and it is a
+#                              30 Hz publisher crossing a TCP link to the guest.
+#
+#   /imu                       same reason, and the same removal bridge_split.yaml
+#                              already made for tb3: nothing here subscribes to it --
+#                              no robot_localization, and slam_toolbox works from
+#                              /scan and odom. imu.urdf.xacro defaults
+#                              update_rate:=200, so bridging it put a 200 Hz
+#                              publisher on the TCP link to an emulated guest for no
+#                              consumer. Every bridged topic costs the guest
+#                              deserialisation on an emulated CPU.
+#
+# Topic names come from the model's own plugin declarations, not from guesswork:
+# create3.urdf.xacro sets <topic>/cmd_vel</topic>, <odom_topic>/odom</odom_topic>,
+# <tf_topic>tf</tf_topic>, and common_properties.urdf.xacro sets <topic>scan</topic>
+# with <gz_frame_id>rplidar_link</gz_frame_id>.
+#
+# Uses the explicit ros_topic_name/gz_topic_name form, like upstream's tb4
+# config, so expand_gz_topic_names is not needed and must be false.
+
+# Absolute /clock on purpose. run_split.sh renames it with `-r /clock:=/clock_gz` to
+# put clock_decimator.py in between, and a remap rule matches the fully expanded
+# name; a relative "clock" resolves to the same thing but only as long as this bridge
+# keeps running without a namespace. run_container_loop.sh takes it unrenamed.
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "scan"
+  gz_topic_name: "/scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "odom"
+  gz_topic_name: "/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+# GZ_TO_ROS only. Gazebo's DiffDrive owns odom->base_link; slam_toolbox owns
+# map->odom. Making this bidirectional sends the guest's map->odom back into
+# Gazebo, which republishes it, and the two feed each other.
+- ros_topic_name: "tf"
+  gz_topic_name: "/tf"
+  ros_type_name: "tf2_msgs/msg/TFMessage"
+  gz_type_name: "gz.msgs.Pose_V"
+  direction: GZ_TO_ROS
+
+# geometry_msgs/Twist, no Header. Measure its latency with
+# rmw_message_info.source_timestamp -- see latency_probe.py.
+- ros_topic_name: "cmd_vel"
+  gz_topic_name: "/cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "gz.msgs.Twist"
+  direction: ROS_TO_GZ

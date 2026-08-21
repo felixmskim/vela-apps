@@ -1,0 +1,11 @@
+# This Dockerfile has no COPY, so the context is only ever uploaded and thrown
+# away. Keep run artefacts out of it anyway: /work is bind-mounted at run time
+# and artifacts/ fills with logs, maps and generated worlds, and shipping them
+# to the daemon on every rebuild is pure cost.
+# NOTE dockerignore semantics differ from git: patterns are root-anchored
+# filepath.Match globs, so directories are named explicitly.
+artifacts/
+logs/
+.git/
+**/__pycache__
+.*.swp

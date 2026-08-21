@@ -1,0 +1,15 @@
+# The camera entry for the YOLO co-tenant, appended to the robot bridge config
+# by run_split.sh when YOLO=1 with YOLO_CAM=robot. It is a fragment, not a
+# config: one bridge participant, not a second one -- a second host participant
+# needs its own listening port and an entry in the guest's initialPeersList,
+# and without them it is discoverable and unreachable.
+#
+# Identical to what make_billboards.py generates for YOLO_CAM=scene: the robot
+# camera (make_world.py --robot-camera) publishes on the same gz topic
+# /camera, precisely so that this entry, yolo_node and detection_overlay work
+# unchanged in both modes.
+- gz_topic_name: "/camera"
+  ros_topic_name: "/camera/image_raw"
+  gz_type_name: "gz.msgs.Image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  direction: GZ_TO_ROS

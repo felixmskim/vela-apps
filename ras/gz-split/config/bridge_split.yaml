@@ -1,0 +1,65 @@
+# ros_gz_bridge config for the split topology.
+#
+# Derived from nav2_minimal_tb3_sim/configs/turtlebot3_waffle_bridge.yaml with
+# two changes:
+#   - /joint_states dropped: nothing in this stack consumes it, and it is a
+#     30 Hz publisher crossing a TCP link to the guest.
+#   - /tf is GZ_TO_ROS only (upstream is the same, stated here because the
+#     failure mode is silent).
+#
+# Never replace this with a wildcard or a blanket bridge: that switches on
+# intel_realsense_r200_depth, 320x240 at 5 Hz through the full PBS render path,
+# which costs more than the lidar and is consumed by nobody.
+
+# Published as /clock, and the split run renames it on the command line rather than
+# here: run_split.sh starts this bridge with `-r /clock:=/clock_gz` and puts
+# clock_decimator.py in between, because Gazebo's clock rate is its physics rate --
+# max_step_size 0.01 means 100 Hz -- and seven guest nodes each running their own
+# /clock subscription against that is ~700 callbacks per second inside TCG. Measured
+# 2026-08-17: bt_navigator's clock fell 65.6 s behind the TF stamps arriving at the
+# same node and every goal aborted on `Initial robot pose is not available`.
+#
+# The rename belongs to the runner and not to this file. This config is shared with
+# run_container_loop.sh, which is container-local, needs no decimator, and was
+# measured (G2/G2b) against a plain /clock. Naming the ROS side /clock_gz here left
+# that runner with no /clock publisher at all while every node it starts asks for
+# use_sim_time -- introduced 08-17 21:34, after the last G2 run at 19:50, so it
+# broke G2 reproducibility silently and nothing caught it.
+- gz_topic_name: "/clock"
+  ros_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+- topic_name: "scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+- topic_name: "odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+# /imu dropped, for the same reason as /joint_states: nothing in this stack
+# subscribes to it -- no robot_localization, and slam_toolbox works from /scan and
+# odom. gz_waffle.sdf.xacro runs the IMU at 200 Hz of sim time, so bridging it put a
+# 200 Hz publisher on the TCP link to an emulated guest for no consumer. It was also
+# the one topic that stayed undelivered after the async-writer fix, which is now
+# moot. Re-add it the day something actually reads it, and measure the link again.
+
+# GZ_TO_ROS only. Gazebo owns odom->base_footprint; slam_toolbox owns map->odom.
+# Making this BIDIRECTIONAL sends the guest's map->odom back into Gazebo, which
+# then republishes it, and the two feed each other.
+- topic_name: "tf"
+  ros_type_name: "tf2_msgs/msg/TFMessage"
+  gz_type_name: "gz.msgs.Pose_V"
+  direction: GZ_TO_ROS
+
+# geometry_msgs/Twist, not TwistStamped: gz-sim-diff-drive-system subscribes to
+# Twist. It carries no Header, so end-to-end latency has to be measured with
+# rmw_message_info.source_timestamp -- see latency_probe.py.
+- topic_name: "cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "gz.msgs.Twist"
+  direction: ROS_TO_GZ

@@ -1,0 +1,15 @@
+# Everything a run writes lands under artifacts/ (the directory is bind-mounted
+# into the container as /work, scripts write to /work/artifacts). RUNLOG.md is
+# the curated record and IS tracked; machine output is not.
+artifacts/
+
+# raw transcripts and hand-picked demo media (RUNLOG.md references them by
+# name). Force-add one deliberately if it is wanted as documentation; nothing
+# here should arrive by accident.
+logs/
+
+# editor leftovers -- a stray .Dockerfile.swp is easy to commit by accident
+.*.sw[a-p]
+
+__pycache__/
+*.pyc

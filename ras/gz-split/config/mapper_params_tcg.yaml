@@ -1,0 +1,107 @@
+# slam_toolbox, async, mapping mode.
+#
+# This file used to carry a set of "TCG tuning" changes. They are gone. What
+# happened, so nobody re-adds them from the same reasoning:
+#
+#   The tuning was written against a cost model (4 vCPU under QEMU TCG at ~10.8x
+#   native) and never measured. When it was first run, real_time_factor came out
+#   at 1.0000 on this host -- there was no performance problem for any of it to
+#   solve -- and slam_toolbox died mid-drive with
+#       Mapper FATAL ERROR - unable to get pointer in probability search!
+#   which killed the map->odom broadcaster, froze /tf, and made the controller
+#   abort every follow_path with "Unable to transform robot pose into global
+#   plan's frame". Six parameters had moved together (grid resolutions, smear
+#   deviations, range threshold, scan throttle, travel gates), so none could be
+#   cleared individually.
+#
+#   Unvalidated tuning that crashes the mapper is not a trade-off, so the whole
+#   set reverted to the shipped mapper_params_online_async.yaml. Only structural
+#   values -- frames, mode, sim time -- differ now, and each says why.
+#
+# If the guest turns out to need tuning, add it back ONE parameter at a time with
+# the measurement that justified it, and re-run G2 after each. The guest is where
+# TCG actually bites; this host is not.
+#
+# Grid parameters carry a hard constraint worth knowing before touching them:
+# CorrelationGrid::CalculateKernel() requires
+#     0.5 * resolution <= smear_deviation <= 10 * resolution
+# and throws out of on_activate() otherwise. The node then SIGABRTs the moment it
+# registers the lidar, reporting "Mapper Error: Smear deviation too small: Must be
+# between <min> and <max>" -- and those two numbers are that formula evaluated,
+# not literals. Changing a *_resolution means changing its *_smear_deviation.
+
+slam_toolbox:
+  ros__parameters:
+
+    # Gazebo runs on the host and publishes /clock through ros_gz_bridge.
+    # Every node on the guest must agree, or TF lookups straddle two clocks.
+    use_sim_time: true
+
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    odom_frame: odom
+    map_frame: map
+    # Gazebo's TB3 waffle SDF roots the chain at base_footprint, and the TB4 URDF
+    # hangs base_footprint off base_link at zero offset, so this is correct for
+    # both robots. slam_toolbox reads the *scan* frame from the LaserScan header,
+    # so there is nothing per-robot to set here.
+    base_frame: base_footprint
+    scan_topic: /scan
+    mode: mapping
+
+    debug_logging: false
+    throttle_scans: 1
+    transform_publish_period: 0.02
+    map_update_interval: 5.0
+    resolution: 0.05
+    max_laser_range: 20.0
+    minimum_time_interval: 0.5
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.
+    stack_size_to_use: 40000000
+    # upstream true -- the rviz panel is unreachable here (no rviz2 for riscv64)
+    # and interactive mode keeps a second copy of every node pose.
+    enable_interactive_mode: false
+
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.5
+    minimum_travel_heading: 0.5
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 10.0
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 3.0
+    # Kept true, but this is the gate-G7 risk: a loop-closure Ceres solve that
+    # stalls longer than 20 s is indistinguishable from RERI recovery delay and
+    # would silently inflate the TC.10.007 MTTR figure. If G7 fails, set false
+    # and say so in the report.
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    # Correlation parameters
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # Loop closure parameters
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    # Scan matcher
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5

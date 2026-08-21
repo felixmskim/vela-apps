@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Fast DDS profile for the HOST side of the split topology.
+
+QEMU SLIRP user-mode networking does not forward multicast, so the default UDP
+simple discovery cannot cross the host/guest boundary. It does allow the guest
+to open outbound TCP to 10.0.2.2. So: the host listens, the guest dials, and a
+single full-duplex TCP connection carries discovery and both directions of user
+data multiplexed over logical ports. No hostfwd rule and no QEMU restart.
+
+Load with:  export FASTRTPS_DEFAULT_PROFILES_FILE=/work/config/host_tcp_server.xml
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>tcp_server</transport_id>
+        <type>TCPv4</type>
+
+        <!-- The presence of listening_ports is what elects this side as the
+             TCP server. The guest profile deliberately has none. -->
+        <listening_ports>
+          <port>42100</port>
+        </listening_ports>
+
+        <!-- Required, not optional, and the reason G3 first failed while the TCP
+             connection was up. Without it the server announces metatraffic
+             locators taken from its own interfaces (here 10.198.137.110,
+             172.17.0.1, 127.0.0.1). SLIRP routes exactly one address from the
+             guest to this host, 10.0.2.2, so the guest completed the TCP
+             connect, discovered the participant, then had no reachable locator
+             to match against and sat silent: 2 ESTABLISHED sockets on 42100 and
+             nothing delivered inside a 90 s budget. wan_addr makes the announced
+             locator the address the guest actually dialled. With it, the first
+             sample crossed in 37 s. Measured 2026-08-17.
+
+             Side effect to expect: host-side participants also try to reach the
+             announced 10.0.2.2, which means nothing on the host, and they sit in
+             SYN-SENT. Harmless for the split topology, where the guest is the
+             only peer that has to reach this side. -->
+        <wan_addr>10.0.2.2</wan_addr>
+
+        <!-- Nagle would coalesce small /cmd_vel writes into the next segment,
+             adding tens of ms to the control loop for no bandwidth gain. -->
+        <enable_tcp_nodelay>true</enable_tcp_nodelay>
+
+        <!-- Defaults are 5000/15000 ms. A RERI-induced stall in the guest can
+             exceed 15 s, and losing the channel would be recorded as workload
+             downtime that never happened. -->
+        <keep_alive_frequency_ms>30000</keep_alive_frequency_ms>
+        <keep_alive_timeout_ms>120000</keep_alive_timeout_ms>
+
+        <!-- TCP already checksums. CRC here costs guest CPU under TCG. -->
+        <calculate_crc>false</calculate_crc>
+        <check_crc>false</check_crc>
+
+        <max_logical_port>200</max_logical_port>
+        <logical_port_range>50</logical_port_range>
+
+        <!-- Explicit, and sized well above any sample here. The defaults left the
+             big topics silently undelivered: measured 2026-08-17, the guest
+             received /clock (16 B) at 102.6 Hz and /tf (~200 B) at 25.0 Hz while
+             /scan (~2.9 kB), /odom (~700 B) and /imu (~330 B) never arrived at
+             all. /tf and /odom come from the SAME DiffDrive plugin at the same
+             rate with the same QoS, so size is the only variable between the pair
+             that works and the pair that does not. -->
+        <maxMessageSize>65000</maxMessageSize>
+        <sendBufferSize>1048576</sendBufferSize>
+        <receiveBufferSize>1048576</receiveBufferSize>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="vela_host_tcp" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>tcp_server</transport_id>
+        </userTransports>
+
+        <!-- true, matching the guest side. It was false, on the reasoning that
+             builtin UDP would make the host answer the guest's advertised
+             10.0.2.15 locator, which is inside SLIRP and unroutable from here.
+             That reasoning was never measured, and false has a cost that was:
+             with no SHM and no UDP, the only host participant that can talk to
+             anything is whichever one owns the 42100 acceptor, and it can talk
+             only to the guest. That left cmd_vel_watchdog.py completely isolated
+             (RUNLOG.md Step 7) and made a host-side /clock decimator impossible
+             to build at all.
+
+             Flipped and re-measured 2026-08-17: G3 and G4 both still pass, so
+             the unroutable-locator concern costs failed connection attempts and
+             nothing else, the same as the SYN-SENT entries wan_addr already
+             produces. Revert only with a G3/G4 run that shows otherwise. -->
+        <useBuiltinTransports>true</useBuiltinTransports>
+      </rtps>
+    </participant>
+
+    <!-- Every writer on this side publishes asynchronously. A SYNCHRONOUS writer
+         hands the sample to the transport on the caller's thread and cannot
+         fragment it; anything that will not go out in one piece is dropped with no
+         error logged anywhere. That is what left /scan, /odom and /imu invisible in
+         the guest while /clock and /tf arrived normally. ASYNCHRONOUS moves the
+         send to the participant's own thread, which is the path that fragments.
+         is_default_profile applies it to every ROS publisher without naming them. -->
+    <data_writer profile_name="vela_host_async" is_default_profile="true">
+      <qos>
+        <publishMode>
+          <kind>ASYNCHRONOUS</kind>
+        </publishMode>
+      </qos>
+    </data_writer>
+
+  </profiles>
+</dds>
