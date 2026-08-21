@@ -1,5 +1,5 @@
 # The demo playbook stays untracked on purpose. It is internal planning and
 # session-handoff material rather than documentation of this code, and this
-# repository is public. The working copy sits beside this file; its source of
-# truth is q-vela's docs/rvss_demo_recovery_playbook.md.
+# repository is public. The working copy sits beside this file, backed up
+# outside the repository tree.
 DEMO_PLAYBOOK.md
