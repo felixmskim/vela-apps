@@ -1,0 +1,10 @@
+# The milestone and install scripts write their logs to the guest home, not
+# here, so neither of these exists yet -- same defence as gz-split/.gitignore.
+artifacts/
+logs/
+
+.*.sw[a-p]
+
+# check_plan.py and check_navigate.py are run in place from this directory
+__pycache__/
+*.pyc

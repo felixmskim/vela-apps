@@ -1,0 +1,102 @@
+# Milestone B — static-map global path planning, three nodes, no robot.
+#
+# Derived from nav2_bringup 1.3.11 params/nav2_params.yaml. Every value that
+# differs from that file is marked with its upstream default and the reason.
+# Two changes are not tuning but correctness: see static_layer/obstacle_layer
+# and the fake TF in planner_only.launch.py.
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Chungbuk National University, Computer Systems Lab
+
+map_server:
+  ros__parameters:
+    use_sim_time: false
+    topic_name: "map"
+    frame_id: "map"
+    # yaml_filename is supplied by the launch file
+    bond_heartbeat_period: 0.0          # upstream 0.1 — 0.0 disables the bond. See
+                                        # the note on lifecycle_manager below.
+
+planner_server:
+  ros__parameters:
+    use_sim_time: false
+    bond_heartbeat_period: 0.0
+    expected_planner_frequency: 1.0     # upstream 20.0 — only drives a warning,
+                                        # but at 20.0 it floods the log every plan
+    costmap_update_timeout: 30.0        # upstream 1.0 — planner_server ABORTS the
+                                        # goal if the costmap is not fresh within
+                                        # this. 1.0 s is unreachable under TCG.
+    action_server_result_timeout: 900.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.5                    # upstream default, kept deliberately.
+                                        # NOTE: tb3_sandbox walls are 1-2 px
+                                        # (max 0.10 m) thick, so a goal inside a
+                                        # wall is legitimately satisfied by a free
+                                        # cell 0.05-0.10 m away. Do NOT write a
+                                        # "goal in wall must fail" assertion.
+      use_astar: false
+      allow_unknown: true               # upstream default. Necessary here:
+                                        # 138683 of 147456 cells are UNKNOWN and
+                                        # only 7903 are free.
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: false
+      global_frame: map
+      robot_base_frame: base_link
+      robot_radius: 0.22
+      resolution: 0.05
+      track_unknown_space: true         # upstream default. Must stay true, or
+                                        # unknown becomes free and the planner
+                                        # test degenerates into a straight line.
+      update_frequency: 0.5             # upstream 1.0
+      publish_frequency: 0.0            # upstream 1.0 — 0.0 disables costmap
+                                        # publishing outright. Nothing consumes it
+                                        # (no rviz2 on riscv64), and with
+                                        # always_send_full_costmap it is a 147 KB
+                                        # serialize+publish thrown away.
+      transform_tolerance: 5.0          # code default 0.3 — TF lookups fail otherwise
+      initial_transform_timeout: 300.0  # code default 60.0 — Costmap2DROS::activate()
+                                        # blocks on map->base_link before this
+      always_send_full_costmap: true
+
+      # CORRECTNESS, not tuning: upstream is
+      #   ["static_layer", "obstacle_layer", "inflation_layer"]
+      # and obstacle_layer's observation_sources is `scan` on /scan. There is no
+      # robot here, so /scan never arrives, the layer never becomes current, and
+      # the planner aborts every goal with TIMEOUT. Drop it.
+      plugins: ["static_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.7
+
+lifecycle_manager_nav:
+  ros__parameters:
+    use_sim_time: false
+    autostart: true
+    node_names: ["map_server", "planner_server"]
+
+    # bond_timeout 0.0 DISABLES bond monitoring. Code default is 4.0; 60.0 was
+    # tried here first and still failed. Observed on this guest:
+    #   [lifecycle_manager_nav] Have not received a heartbeat from planner_server.
+    #   CRITICAL FAILURE: SERVER planner_server IS DOWN after not receiving a
+    #   heartbeat for 60000 ms. Shutting down related nodes.
+    # ...even though planner_server was healthy. Its executor was saturated by DDS
+    # discovery, so the heartbeat timer simply did not get scheduled for a minute.
+    #
+    # The trade is deliberate. Bond exists to detect a crashed server and tear the
+    # stack down. In a bring-up test under TCG a FALSE "server is down" destroys
+    # the run, whereas a real crash is still caught — the ComputePathToPose call
+    # fails and check_plan.py reports it. Losing automatic teardown costs nothing
+    # here; losing the run to a scheduling hiccup costs everything.
+    bond_timeout: 0.0
+    attempt_respawn_reconnection: false # code default true — respawn loops mask
+                                        # the real error and burn emulated CPU
