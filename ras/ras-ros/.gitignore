@@ -1,0 +1,11 @@
+# The node appends to /var/log/ras/events.log and run_check.sh works in a
+# temporary directory, so neither of these exists yet -- same defence as
+# gz-split/.gitignore.
+artifacts/
+logs/
+
+.*.sw[a-p]
+
+# tools/ is run in place; one ras_decode.py --self-test here creates these
+__pycache__/
+*.pyc

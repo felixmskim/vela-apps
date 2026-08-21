@@ -1,0 +1,12 @@
+# Recorded ras:non_standard_event output. Not synthetic traffic: both lines are
+# the events documented in ../../README.md, restored to the full 192-byte record
+# that trace_pipe actually emits (the README elides the trailing zero bytes for
+# readability, and wraps one event across four lines).
+#
+#   line 1  RERI code 9,  TLB/page-walk, deferred   -> CPER 0x02, GHES 2 recoverable
+#   line 2  RERI code 17, execution unit, corrected -> CPER 0x08, GHES 1 corrected
+#
+# Line 2 is what TC.10.007 injects four times an hour. Comment lines do not match
+# the event regex, so this header is inert to every consumer.
+devmem-153 [000] dnh.. 414.591022: non_standard_event: severity: 2; sec type:adcc7698-b447-db4b-b65e-16f193c4f3db; FRU: 00000000-0000-0000-0000-000000000000 ; data len:192; raw data:0f 02 00 00 00 00 00 00 03 06 02 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+reri-inject-1289 [001] dnh.. 3902.114777: non_standard_event: severity: 1; sec type:adcc7698-b447-db4b-b65e-16f193c4f3db; FRU: 00000000-0000-0000-0000-000000000000 ; data len:192; raw data:0f 02 00 00 00 00 00 00 03 06 08 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00

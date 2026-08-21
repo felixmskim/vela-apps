@@ -1,0 +1,44 @@
+[Unit]
+# TC.10.007 collects unattended for the better part of an hour, so the monitor
+# has to survive the console session that started it, restart if it dies, and
+# come back after a reboot -- the same argument ../README.md makes for running
+# rasdaemon as a service rather than with `-f &`.
+Description=RAS event monitor, kernel to ROS 2
+Documentation=https://github.com/riscv-vela/vela-apps/blob/main/ras/ras-ros/README.md
+# rasdaemon is not required -- the two read independent trace instances -- but
+# when both are present the monitor's count cross-check is only meaningful once
+# rasdaemon has its database open.
+After=network.target rasdaemon.service
+Wants=rasdaemon.service
+
+[Service]
+Type=simple
+User=vela
+# tracefs is 0640 root:tracing after the setup below. This is what lets the node
+# read it as an ordinary user; running it as root instead would give Fast DDS a
+# root-owned participant that does not share /dev/shm with the Nav2 nodes.
+SupplementaryGroups=tracing
+
+# `+` runs this one line as root even though the service is User=vela. The
+# tracefs mount options, the trace instance and the event enable are runtime
+# state and none of it survives a reboot, so the service rebuilds it every time
+# rather than depending on someone having run the installer since boot.
+ExecStartPre=+/home/vela/ras_ros/guest-tracefs-setup.sh vela
+
+# bash -lc, not a bare python3: ROS 2 lives in /opt/ros/jazzy and nothing in a
+# systemd environment sources it. `exec` so systemd tracks python and not a
+# shell that would swallow the exit status.
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && exec python3 /home/vela/ras_ros/ras_monitor.py --log-file /var/log/ras/events.log'
+
+Restart=always
+# on-abort would miss a clean non-zero exit, which is how an unreadable trace
+# pipe or a missing rclpy leaves.
+RestartSec=5
+KillSignal=SIGINT
+
+# Rate-limited restarts would leave the monitor dead exactly when a storm of
+# errors is what made it die. Keep trying.
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target
