@@ -553,6 +553,10 @@ rewritten around what the record actually holds.
 
 ## See also
 
+- [`workload-nav2.md`](workload-nav2.md) — bringing up the ROS 2 / Nav2 workload the availability test runs against
+- [`gz-split/`](gz-split/) — adding Gazebo and SLAM to that workload, with the simulator on the x86 host
+- [`yolo/`](yolo/) — the AI inference co-tenant, on a self-built riscv64 ONNX Runtime
+- [`ras-ros/`](ras-ros/) — publishing the errors injected here onto ROS 2, and into the event log the TSP names
 - [q-vela `docs/ras.md`](https://github.com/riscv-vela/q-vela/blob/main/docs/ras.md) — boot command and the RERI smoke test
 - [vela-fws](https://github.com/riscv-vela/vela-fws) — firmware and root filesystem
 - [vela-linux](https://github.com/riscv-vela/vela-linux) — kernel, including the RAS options
