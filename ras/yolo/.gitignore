@@ -1,0 +1,15 @@
+# Binaries stay outside the repository, under ~/ms_kim/yolo-artifacts (ART= in
+# every script): the onnxruntime wheel, yolov8n.onnx, the recorded bag.
+*.whl
+*.onnx
+
+# Run output goes to $ART or to /work/artifacts (= gz-split/, bind-mounted), so
+# neither of these exists here. They are the defence gz-split/.gitignore has.
+artifacts/
+logs/
+
+.*.sw[a-p]
+
+# tools/ is run in place. Two of these were already staged before this file.
+__pycache__/
+*.pyc
