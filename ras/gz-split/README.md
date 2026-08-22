@@ -484,9 +484,17 @@ The full recipe, and the timings are measured rather than estimated:
 WATCHDOG= RTF_LIMIT=0.5 GUI=1 ROBOT=tb3 PRE_DRIVE_SLEEP=120 scripts/run_split.sh
 
 # terminal 2 -- the moment terminal 1 prints "7/10"
-RVIZ=1 ROBOT=tb3 GEOMETRY=1920x1080 FOLLOW_OFFSET_OVERRIDE=-3.0,0,2.0 \
+RVIZ=1 ROBOT=tb3 GEOMETRY=1920x1080 \
   scripts/run_demo.sh --record --duration 200
 ```
+
+**No `FOLLOW_OFFSET_OVERRIDE`.** This recipe carried `-3.0,0,2.0` until 2026-08-22.
+Three metres behind the robot is outside a 4.5 m walled arena, and the wall then
+occludes the robot: Take 2's Gazebo pane showed the arena from outside with nothing
+driving in it (RUNLOG "Take 2 — my camera fix put the camera outside the wall", and
+the note under "Recording it with the detector" below). The per-robot value
+`robot.env` generates -- `-1.0,0,0.45` for tb3 -- was already tuned for this world,
+and it is what every take from 5 to 11 actually used. Leave it alone.
 
 | stage | measured |
 |---|---|
