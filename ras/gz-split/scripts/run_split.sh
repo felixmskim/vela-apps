@@ -170,6 +170,12 @@ TOPIC_BUDGET_MS=${TOPIC_BUDGET_MS:-$(awk -v b="$TSP_BUDGET_MS" -v r="$RTF_LIMIT"
 YOLO=${YOLO:-0}
 YOLO_CAM=${YOLO_CAM:-robot}
 YOLO_ASSETS=${YOLO_ASSETS:-$HOME/ms_kim/yolo-artifacts/assets}
+# Host-side copy of the Gazebo Fuel cache, checked under GUI=1 only. The people
+# models are container-local state: the block below downloads them into
+# $CONTAINER, and `docker inspect vela-gz` shows /work as its only mount, so that
+# cache never reaches the host or the viewer image. run_demo.sh mounts this
+# directory into the viewer read-only, and must agree with it on the path.
+FUEL_CACHE=${FUEL_CACHE:-$HOME/ms_kim/gz-fuel-cache}
 YOLO_DIR=${YOLO_DIR:-/home/vela/yolo}
 YOLO_X=${YOLO_X:-30}
 YOLO_Y=${YOLO_Y:-0}
@@ -432,6 +438,29 @@ if [ "$YOLO" = 1 ]; then
       dex "gz fuel download -u 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Standing person' &&
            gz fuel download -u 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Walking person'" \
         >/dev/null || { say "FAIL: Fuel download failed -- no network in the container?"; exit 1; }; }
+    # The check above is `dex`, so it only ever asks $CONTAINER -- the SERVER. The
+    # GUI is a different container from a different image, and make_people.py
+    # writes ABSOLUTE mesh URIs (file:///home/vela/.gz/fuel/...), so a viewer
+    # without the same cache renders the robot and silently drops every person.
+    # That is what the 2026-08-22 GUI run did: nothing failed, the people were
+    # just not there. Under GUI=1 the host copy run_demo.sh mounts is checked too,
+    # here at step 6 rather than twenty minutes later when the viewer starts.
+    if [ "$GUI" = 1 ]; then
+      FC_STANDING="$FUEL_CACHE/fuel.gazebosim.org/openrobotics/models/standing person/3/meshes/standing.dae"
+      FC_WALKING="$FUEL_CACHE/fuel.gazebosim.org/openrobotics/models/walking person/3/meshes/walking.dae"
+      if [ ! -f "$FC_STANDING" ] || [ ! -f "$FC_WALKING" ]; then
+        say "FAIL: GUI=1 but the host Fuel cache has no person meshes"
+        say "      checked: $FC_STANDING"
+        say "               $FC_WALKING"
+        say "      $CONTAINER has them, the viewer image does not, and nothing"
+        say "      copies them across. Seed the host copy once:"
+        say "        mkdir -p \"$FUEL_CACHE\""
+        say "        docker cp '$CONTAINER:/home/vela/.gz/fuel/.' \"$FUEL_CACHE\"/"
+        say "      run_demo.sh mounts it read-only at /home/vela/.gz/fuel."
+        exit 1
+      fi
+      say "      host Fuel cache OK for the viewer ($FUEL_CACHE)"
+    fi
     dex "python3 /work/artifacts/yolo_scene/make_people.py \
          --out-dir /work/artifacts/people" \
       || { say "FAIL: could not build the person models"; exit 1; }

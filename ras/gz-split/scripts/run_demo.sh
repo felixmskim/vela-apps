@@ -38,6 +38,22 @@ mkdir -p "$ROOT/artifacts"
 CONTAINER=${CONTAINER:-vela-gz}
 VIEWER=${VIEWER:-vela-gz-view}
 IMAGE=${IMAGE:-vela-gzsim:demo}
+# The viewer needs the Fuel cache the SERVER has. ../yolo/tools/make_people.py
+# writes artifacts/people/*.sdf with ABSOLUTE mesh URIs --
+# file:///home/vela/.gz/fuel/fuel.gazebosim.org/openrobotics/models/standing person/3/meshes/standing.dae
+# -- and vela-gz carries that cache in its own writable layer, not on a bind
+# mount: `docker inspect vela-gz` lists /work and nothing else. This image has no
+# ~/.gz at all, so the GUI resolved the robot (GZ_SIM_RESOURCE_PATH carries
+# nav2_minimal_tb3_sim/models) and drew no people, with nothing on screen or in
+# the log to say why. Mounting a host copy read-only makes the same URI resolve on
+# this side, so neither the SDF nor make_people.py has to change.
+#
+# Seed it once from the server container, which already has it:
+#   mkdir -p ~/ms_kim/gz-fuel-cache
+#   docker cp 'vela-gz:/home/vela/.gz/fuel/.' ~/ms_kim/gz-fuel-cache/
+# It is deliberately outside the repository and outside artifacts/: artifacts/ is
+# rebuilt every run, and 157 MB of collada does not belong in git.
+FUEL_CACHE=${FUEL_CACHE:-$HOME/ms_kim/gz-fuel-cache}
 ROBOT=${ROBOT:-tb3}
 DISPLAY_NUM=${DISPLAY_NUM:-99}
 # Default set once RVIZ is known, below: two tiled panes need the width.
@@ -254,10 +270,36 @@ dex "gz topic -l 2>/dev/null | grep -q '/world/$WORLD_NAME/scene/info'" || {
   say "FAIL: the running server has no scene/info -- it was started from a"
   say "      headless world. Restart that run with GUI=1"; exit 1; }
 
+# Refuse to start rather than film an empty arena. A viewer with no Fuel cache
+# renders the robot and silently omits every people model, and nothing in the GUI
+# log says so -- the first evidence is the finished recording. Re-shooting a
+# 1500 s take costs far more than failing here. The MESH is checked and not just
+# the directory, because a `docker cp` of the wrong source leaves the directory
+# behind with nothing under it.
+PERSON_MESH="$FUEL_CACHE/fuel.gazebosim.org/openrobotics/models/standing person/3/meshes/standing.dae"
+if [ ! -d "$FUEL_CACHE" ]; then
+  say "FAIL: no Fuel cache directory at $FUEL_CACHE"
+  say "      The viewer needs it: artifacts/people/*.sdf carry absolute mesh URIs"
+  say "      under file:///home/vela/.gz/fuel/, and $IMAGE ships no ~/.gz."
+  say "      Seed it from $CONTAINER, which has the cache in its writable layer:"
+  say "        mkdir -p \"$FUEL_CACHE\""
+  say "        docker cp '$CONTAINER:/home/vela/.gz/fuel/.' \"$FUEL_CACHE\"/"
+  say "      Or point FUEL_CACHE= at an existing copy."
+  exit 1
+fi
+if [ ! -f "$PERSON_MESH" ]; then
+  say "FAIL: the Fuel cache at $FUEL_CACHE has no standing person mesh"
+  say "      expected: $PERSON_MESH"
+  say "      Re-seed it:"
+  say "        docker cp '$CONTAINER:/home/vela/.gz/fuel/.' \"$FUEL_CACHE\"/"
+  exit 1
+fi
+
 say "starting the viewer container ($IMAGE, host netns so gz-transport reaches the server)"
+say "      Fuel cache $FUEL_CACHE -> /home/vela/.gz/fuel (ro)"
 docker rm -f "$VIEWER" >/dev/null 2>&1
 docker run -d --name "$VIEWER" --network host --shm-size=512m \
-  -v "$ROOT":/work -w /work "$IMAGE" >/dev/null || exit 1
+  -v "$ROOT":/work -v "$FUEL_CACHE":/home/vela/.gz/fuel:ro -w /work "$IMAGE" >/dev/null || exit 1
 sleep 2
 
 say "Xvfb :$DISPLAY_NUM ($GEOMETRY)"
