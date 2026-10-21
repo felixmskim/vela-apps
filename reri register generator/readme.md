@@ -11,7 +11,15 @@ RERI Register Generator는 xlsx (마이크로소프트 엑셀파일)로 작성�
 
 기본적으로 스펙상에서 RERI Control_i Register는 Error bank +  64(offset) * (i + 1)의 주소를 가지며, 0x4010000 + 64 * (i + 1)을 코드상에서 가진다고 볼 수 있습니다. 그러므로 일반적으로 예시로 사용되는 Control_0 Register의 주소값은 0x4010040입니다.
 
-기본적으로 스펙상에서 RERI Status_i Register는 Error bank + 72(offset) * (i + 1)의 주소를 가지며, 0x4010000 + 72 * (i + 1)을 코드상에서 가진다고 볼 수 있습니다. 그러므로 일반적으로 예시로 사용되는 Status_0 Register의 주소값은 0x4010048입니다.
+RERI Status_i Register는 같은 error record 안에서 Control_i 바로 뒤 8바이트 위치에 있습니다. error record 하나가 64바이트이므로 주소는 Error bank + 64 * (i + 1) + 8, 즉 Control_i + 8입니다. 그러므로 일반적으로 예시로 사용되는 Status_0 Register의 주소값은 0x4010048입니다.
+
+record 간격이 72가 아니라 64이기 때문에, offset을 72로 잡으면 record 0에서만 우연히 맞고 record 1부터 8바이트씩 어긋납니다.
+
+| i | Control_i | Status_i | 72 * (i + 1) |
+|---|---|---|---|
+| 0 | 0x4010040 | 0x4010048 | 0x4010048 |
+| 1 | 0x4010080 | 0x4010088 | 0x4010090 |
+| 2 | 0x40100C0 | 0x40100C8 | 0x40100D8 |
 
 ### Control Register
 
