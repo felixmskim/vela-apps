@@ -1,0 +1,32 @@
+6,540,250100000,-;systemd[1]: Started ROS 2 fault monitor test scenario.
+12,541,255900000,-;RASINJ hart=0 base=0x4010000 code=0x9001404 tag=tlb seq=1
+3,542,256021037,-;{2}[Hardware Error]: Hardware error from APEI Generic Hardware Error Source: 1
+3,543,256021775,-;{2}[Hardware Error]: event severity: recoverable
+3,544,256022399,-;{2}[Hardware Error]:  Error 0, type: recoverable
+3,545,256022947,-;{2}[Hardware Error]:   section_type: general processor error
+3,546,256023594,-;{2}[Hardware Error]:   processor_type: 3, RISCV
+3,547,256024161,-;{2}[Hardware Error]:   processor_isa: 6, RISCV64
+3,548,256024630,-;{2}[Hardware Error]:   error_type: 0x02
+3,549,256025135,-;{2}[Hardware Error]:   TLB error
+3,550,256025603,-;{2}[Hardware Error]:   operation: 1, data read
+3,551,256026094,-;{2}[Hardware Error]:   target_address: 0x0000000000000000
+6,552,258000000,-;usb 1-1: new high-speed USB device number 2 using xhci_hcd
+ SUBSYSTEM=usb
+ DEVICE=+usb:1-1
+12,553,262400000,-;RASINJ hart=3 base=0x4013000 code=0xC001702 tag=hart seq=2
+4,554,262500000,-;{3}[Hardware Error]: Hardware error from APEI Generic Hardware Error Source: 4
+4,555,262501000,-;{3}[Hardware Error]: It has been corrected by h/w and requires no further action
+4,556,262502000,-;{3}[Hardware Error]: event severity: corrected
+4,557,262503000,-;{3}[Hardware Error]:  Error 0, type: corrected
+4,558,262504000,-;{3}[Hardware Error]:   section_type: general processor error
+4,559,262505000,-;{3}[Hardware Error]:   processor_type: 3, RISCV
+4,560,262506000,-;{3}[Hardware Error]:   processor_isa: 6, RISCV64
+4,561,262507000,-;{3}[Hardware Error]:   error_type: 0x08
+4,562,262508000,-;{3}[Hardware Error]:   micro-architectural error
+4,563,262509000,-;{3}[Hardware Error]:   operation: 2, data write
+4,564,262510000,-;{3}[Hardware Error]:   target_address: 0x0000000000000000
+5,565,263000000,-;CPU3: off
+6,566,263500000,-;ras_fault_monitor: scenario checkpoint (no fault expected)
+3,567,264000000,-;Out of memory: Killed process 1234 (python3) total-vm:512000kB
+3,568,264500000,-;virtio_blk virtio1: [vda] I/O error, dev vda, sector 8192 op 0x0:(READ)
+6,569,265000000,-;systemd[1]: Scenario finished.
