@@ -304,12 +304,29 @@ Two reasons the scripts exist rather than this loop being the answer:
   either way and nothing happens when the trigger fires. `reri-inject` reads
   the register back and refuses to fire.
 
-> ⚠️ **Leave at least 10 s between injections into the same record.** Measured on
-> `-smp 8`, hart 3, code 17: 5 s spacing produced 3 CPER records out of 5 injections;
-> 10 s and 20 s gave 4 out of 4. The loss is invisible from the guest — consumption
-> clears only `status_i.v`, so re-injecting the same code writes a bit-identical value,
-> the readback guard above sees what it expected, and `reri-inject` exits 0.
-> ([q-vela#61](https://github.com/riscv-vela/q-vela/issues/61))
+> ⚠️ **Two identical errors less than 10 s apart are reported once.** The kernel
+> keeps a cache of recently seen GHES status blocks and treats a byte-identical
+> one as already reported. `GHES_ESTATUS_IN_CACHE_MAX_NSEC` is 10 s, and the
+> timestamp is set when the entry is added, not refreshed on a hit. Measured on
+> `-smp 8`, hart 3, code 17: 5 s spacing gave 3 reports out of 5 injections —
+> at 0 s, 10 s and 20 s — while 12 s spacing gave 4 out of 4.
+>
+> Nothing is lost in the emulator. `riscv_reri_write_status()` accepts the write
+> whenever `status_i.v` is 0, which it always is after consumption. Injecting the
+> same code five times at 5 s while varying only `addr_i` produced **5 reports out
+> of 5**, because a different target address makes a different status block.
+>
+> On this platform the deduplication is not only about printing. GHES is notified
+> through SSE, and `ghes_in_nmi_queue_one_entry()` checks the cache *before*
+> queueing, so a suppressed error never reaches `ghes_do_proc()` at all: no dmesg
+> line, no `ras:non_standard_event` tracepoint, no daemon record. Counting
+> tracepoints does not reveal the suppressed ones here, which is worth knowing
+> because on the IRQ-notified path (`ghes_proc()`) the cache guards only the
+> printout and processing continues.
+>
+> So a test that needs N separate reports should either leave more than 10 s
+> between identical injections, or vary something that reaches the status block —
+> `-a` is the easiest. ([q-vela#61](https://github.com/riscv-vela/q-vela/issues/61))
 
 ### Available error types
 
@@ -317,9 +334,28 @@ Two reasons the scripts exist rather than this loop being the answer:
 |------|-----------|----------|----------------|-------------------------|-----------|
 | `tlb` | 9 — TLB/page-walk cache data | deferred | `0x09001404` | `error_type: 0x02` TLB error, `operation: 1, data read`, **recoverable** | **yes** |
 | `exec-unit` | 17 — execution unit / datapath | corrected | `0x11001702` | `error_type: 0x08` micro-architectural error, `operation: 2, data write`, **corrected** | **yes** |
-| `mem-data` | 20 — system memory data | corrected | `0x14001702` | identical to `exec-unit` — see below | **yes** |
-| `hart` | 12 — hart state error | corrected | `0x0C001702` | identical to `exec-unit` | q-vela `docs/ras.md` |
-| `watchdog` | 16 — internal watchdog | corrected | `0x10001702` | expected: identical to `exec-unit` | not yet |
+| `cache` | 3, 4, 5 — cache data/tag | corrected | `0x03001702`, `0x04001702`, `0x05001702` | `error_type: 0x01` cache error — all three report identically | **yes** |
+| `hart` | 12 — hart state error | corrected | `0x0C001702` | identical to `exec-unit` | **yes** |
+| `mem-data` | 20 — system memory data | corrected | `0x14001702` | identical to `exec-unit` on stock firmware; a memory section with the pending patch — see below | **yes** |
+| `mem-scrub` | 21 — scrub corrected | corrected | `0x15001502` | memory section, `error_type: 13, scrub corrected error` (patched firmware) | **yes** |
+| `mem-bus` | 18 — bus/interconnect | corrected | `0x12001702` | memory section, `error_type: 8, parity error` (patched firmware, `addr_i` non-zero) | **yes** |
+| `watchdog` | 16 — internal watchdog | corrected | `0x10001702` | identical to `exec-unit`; no reset, no hang | **yes** |
+
+Codes 3, 4 and 5 are three distinct RERI codes that all report `error_type: 0x01`,
+so a record cannot say which of them fired — the same collapse described below for
+the code in general.
+
+Code 16 is the internal watchdog, and the name suggests it might reset or hang the
+machine. It does not. Injected on hart 3 it produced an ordinary corrected processor
+record and nothing else; the guest stayed up across sixty seconds of probing from
+outside, and neither service restarted. The emulator carries the code in `status_i`
+and the rest of the path treats it like any other CPU-class error.
+
+With the pending firmware patch, codes 18, 20 and 21 stop being indistinguishable
+from a CPU error and arrive as Platform Memory Error sections carrying
+`physical_address`. Their severity is a separate matter: they come back as
+`recoverable` even when injected corrected, which is
+[vela-fws#5](https://github.com/riscv-vela/vela-fws/issues/5).
 
 ### ⚠️ The RERI error code does not survive into the log
 
