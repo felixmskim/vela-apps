@@ -191,6 +191,22 @@ injector put there.
 Note the record arrives as **undecoded raw bytes**. That is expected here — see
 [Known limitations](#known-limitations).
 
+#### Identifying the hart
+
+The record does not say which hart faulted: `reri_drv.c` never sets `GPE_CPU_ID_VALID`,
+which `ghes.c:330` needs before it writes the field
+([vela-fws#3](https://github.com/riscv-vela/vela-fws/issues/3)). Firmware that sets it
+adds the one line that answers the question:
+
+```
+{1}[Hardware Error]:   processor_id: 0x0000000000000003
+```
+
+That is a **hart id**, not a Linux CPU number — see
+[Observing a RERI event](#observing-a-reri-event). `Generic Hardware Error Source: N`
+works out to `hart + 1` here, but that follows from the GHES table layout, so treat it as
+corroboration rather than the primary source.
+
 ### If it does not work
 
 | What you see | What it means |
@@ -288,6 +304,13 @@ Two reasons the scripts exist rather than this loop being the answer:
   either way and nothing happens when the trigger fires. `reri-inject` reads
   the register back and refuses to fire.
 
+> ⚠️ **Leave at least 10 s between injections into the same record.** Measured on
+> `-smp 8`, hart 3, code 17: 5 s spacing produced 3 CPER records out of 5 injections;
+> 10 s and 20 s gave 4 out of 4. The loss is invisible from the guest — consumption
+> clears only `status_i.v`, so re-injecting the same code writes a bit-identical value,
+> the readback guard above sees what it expected, and `reri-inject` exits 0.
+> ([q-vela#61](https://github.com/riscv-vela/q-vela/issues/61))
+
 ### Available error types
 
 | Name | RERI code | Severity | Register value | What the kernel reports | Observed? |
@@ -369,6 +392,27 @@ dmesg | grep -A15 'Hardware Error'
 
 Paste the raw output into the issue or PR — a summary is not evidence.
 
+### Observing a RERI event
+
+**`/proc/interrupts` has no RERI or GHES line.** The notification arrives as a Supervisor
+Software Event, not an IRQ-domain interrupt (`GHES: Registered SSE notification on
+vector …` at boot), so diffing the file across an injection adds no new row. Watch these
+instead:
+
+- `dmesg -T | grep -A15 'Hardware Error'` — the CPER record. Authoritative.
+- `grep IPI4 /proc/interrupts` — IRQ work, in the column of the CPU that handled the
+  event. The only counter that moves.
+
+**hart ids are not Linux CPU numbers.** On this `-smp 8` guest, boot hart 7 is CPU 0 and
+hart N is CPU N+1. Read it at runtime rather than assuming identity:
+
+```bash
+awk '/^processor/{p=$3} /^hart\t/{print "cpu" p " = hart " $3}' /proc/cpuinfo
+```
+
+Offlining CPU 6 for "hart 6 faulted" would take down hart 5 while the faulty hart kept
+running.
+
 ### Closing the loop
 
 Once it works, boot a kernel **without** `CONFIG_RAS` and inject again. You
@@ -408,6 +452,7 @@ builds a memory section when the physical address is non-zero.
 > gives the Status address as `bank + 72*(i+1)`. That happens to be right for
 > record 0 (72 = 0x48) but is wrong from record 1 onward — records are 64 bytes
 > apart, not 72. Use `control_i + 8`.
+> ([#5](https://github.com/riscv-vela/vela-apps/issues/5))
 
 ### `status_i` encoding
 
@@ -519,8 +564,9 @@ to match and stores the payload as raw bytes.
 That is enough to prove detection and collection, and the bytes are readable by
 hand against `struct cper_sec_proc_generic` (see the table in
 [What a successful run looks like](#what-a-successful-run-looks-like)). It is not
-a human-readable fault report. Producing one would mean teaching rasdaemon to
-decode this GUID.
+a human-readable fault report. Producing one means teaching rasdaemon to decode
+this GUID, or reading the kernel's own decoded `dmesg` instead — the second route
+is [#6](https://github.com/riscv-vela/vela-apps/issues/6).
 
 **Memory errors go through the hart bank too.** QEMU declares a separate DRAM
 error bank at `0x4000000`, but no device is actually created for it — it exists
