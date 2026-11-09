@@ -294,9 +294,22 @@ Two reasons the scripts exist rather than this loop being the answer:
 |------|-----------|----------|----------------|-------------------------|-----------|
 | `tlb` | 9 — TLB/page-walk cache data | deferred | `0x09001404` | `error_type: 0x02` TLB error, `operation: 1, data read`, **recoverable** | **yes** |
 | `exec-unit` | 17 — execution unit / datapath | corrected | `0x11001702` | `error_type: 0x08` micro-architectural error, `operation: 2, data write`, **corrected** | **yes** |
-| `mem-data` | 20 — system memory data | corrected | `0x14001702` | identical to `exec-unit` — see below | **yes** |
-| `hart` | 12 — hart state error | corrected | `0x0C001702` | identical to `exec-unit` | q-vela `docs/ras.md` |
+| `cache` | 3, 4, 5 — cache data/tag | corrected | `0x03001702`, `0x04001702`, `0x05001702` | `error_type: 0x01` cache error — all three report identically | **yes** |
+| `hart` | 12 — hart state error | corrected | `0x0C001702` | identical to `exec-unit` | **yes** |
+| `mem-data` | 20 — system memory data | corrected | `0x14001702` | identical to `exec-unit` on stock firmware; a memory section with the pending patch — see below | **yes** |
+| `mem-scrub` | 21 — scrub corrected | corrected | `0x15001502` | memory section, `error_type: 13, scrub corrected error` (patched firmware only) | **yes** |
 | `watchdog` | 16 — internal watchdog | corrected | `0x10001702` | expected: identical to `exec-unit` | not yet |
+
+Codes 3, 4 and 5 are worth one note: they are three distinct RERI codes but the
+kernel reports `error_type: 0x01` for all of them, so a log record cannot tell
+you which of the three was injected — the same collapse described below for the
+code in general.
+
+With the pending firmware patch, codes 20 and 21 stop being indistinguishable
+from a CPU error and arrive as Platform Memory Error sections carrying
+`physical_address`. The severity they report is a separate matter: both come
+back as `recoverable` even when injected corrected, which is
+[vela-fws #5](https://github.com/riscv-vela/vela-fws/issues/5).
 
 ### ⚠️ The RERI error code does not survive into the log
 
