@@ -1,0 +1,57 @@
+[Unit]
+Description=RAS fault monitor (RERI/eBPF/PuC/ROS2 observation, independent of ROS 2)
+Documentation=file://@RAS_HOME@/README.md
+# ROS 2 is deliberately not an After=/Requires=. This has to be up while ROS 2 is absent
+# or dead in order to record that fact — which is the reason this daemon exists.
+After=local-fs.target systemd-modules-load.service
+Wants=systemd-modules-load.service
+
+# A crash loop is not allowed to run forever. Under TCG one restart burns more than 30
+# seconds of CPU, and worse, the loop hides the failure as 'active' — giving up after 5
+# attempts and staying failed is better than an invisible loop.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Reading /dev/kmsg, hwpoison, CPU hotplug and /proc/<pid>/fd access all need root.
+User=root
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=@RAS_HOME@
+WorkingDirectory=@RAS_HOME@
+
+# The default is **observation only**. To really execute isolation, add --arm through a
+# drop-in:
+#   systemctl edit ras-fault-monitor
+#   [Service]
+#   ExecStart=
+#   ExecStart=/usr/bin/python3 -m ras_fault_monitor.daemon --out ... --arm
+ExecStart=/usr/bin/python3 -m ras_fault_monitor.daemon \
+    --out /var/log/ras/faults.jsonl \
+    --puc-interval 15 \
+    --ros2-interval 10 \
+    --min-online-cpus 2
+
+# If the daemon dies, collection stops silently — it must always be brought back.
+Restart=always
+RestartSec=5
+# Startup is slow under TCG emulation; a short timeout creates a restart loop during it.
+TimeoutStartSec=180
+TimeoutStopSec=30
+
+# Prepare the log directory (so it works without tmpfiles too)
+ExecStartPre=/bin/mkdir -p /var/log/ras
+
+# The daemon writes the fault log to the file itself; stdout is discarded to avoid
+# duplicating it into the journal.
+StandardOutput=null
+StandardError=journal
+
+# Separately from the rule that the daemon dying beats picking the wrong isolation
+# target, these limits keep a runaway from pushing the system over.
+MemoryMax=256M
+CPUWeight=20
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

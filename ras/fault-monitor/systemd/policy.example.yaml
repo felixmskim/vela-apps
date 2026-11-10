@@ -1,0 +1,34 @@
+# ras-fault-monitor policy — every entry is optional.
+# General threat monitoring works exactly the same without this file.
+
+thresholds:
+  disk_used_warn: 0.80        # earlier on a box that logs heavily
+  mem_available_warn: 0.15
+  temp_warn_c: 70.0           # lower it for a sealed enclosure
+
+# Which nodes are critical — knowledge observation cannot supply.
+nodes:
+  - name: cmd_vel_mux
+    critical: true
+    restart: systemctl restart nav-cmd-mux
+  - name: imu_node
+    critical: true
+    stateful: true            # holds calibration -> never restarted
+  - name: diagnostics_agg
+    critical: false
+
+# Topic expectations. min_hz and limits are the grounds for a Tier 3 verdict.
+topics:
+  /cmd_vel:
+    required: true
+    min_hz: 10
+  /sensor/imu:
+    min_hz: 50
+    limits:
+      # This alone can claim something is physically wrong.
+      # Widen the range for an airframe that goes into free fall.
+      linear_acceleration.z: [8.0, 12.0]
+
+tolerances:
+  core_loss: true             # true when there is no real-time deadline
+  min_cores: 4

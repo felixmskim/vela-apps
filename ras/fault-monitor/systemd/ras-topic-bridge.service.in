@@ -1,0 +1,33 @@
+[Unit]
+Description=RAS topic anomaly detection bridge (requires rclpy)
+# Unlike the core daemon, this one only means anything when ROS 2 is present. It still
+# does not Requires= the core: if either death propagated to the other, the whole point
+# of the hybrid design would be lost.
+After=network.target
+
+# A crash loop is not allowed to run forever. Under TCG one restart burns more than 30
+# seconds of CPU, and worse, the loop hides the failure as 'active' — giving up after 5
+# attempts and staying failed is better than an invisible loop.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@BRIDGE_USER@
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=@RAS_HOME@
+WorkingDirectory=@BRIDGE_HOME@
+# setup.bash has to be sourced for rclpy and the message types to resolve.
+ExecStart=/bin/bash -lc 'source @ROS_SETUP@ && \
+  exec python3 -m ras_fault_monitor.ros2topic_node \
+    --out /var/log/ras/topics.jsonl --warmup 20 --deadline-factor 5'
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+StandardOutput=null
+StandardError=journal
+MemoryMax=512M
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
