@@ -583,11 +583,30 @@ ghes_do_proc()   if (guid_equal(sec_type, &CPER_SEC_PLATFORM_MEM))
     → dimm->ce_count += e->error_count
 ```
 
-Two things follow. Today no Platform Memory Error section is produced at all, so
-`mc0` never appears — the pending firmware patch above fixes that for codes
-18–21. But even then, a CPU-class code such as 17 will never reach this path,
-because it is not a memory error. Any test that injects code 17 and expects
-`ce_count` to increment is asking for two incompatible things.
+Three things follow. Today no Platform Memory Error section is produced at all,
+so `mc0` never appears; the pending firmware patch above produces one for codes
+18–21. That still does not populate `ce_count`, because the guest kernel builds
+without the EDAC core — `CONFIG_EDAC_SUPPORT=y` but `# CONFIG_EDAC is not set`,
+so `ghes_edac_report_mem_error()` is not compiled in and `/sys/devices/system/edac`
+does not exist. Measured with the patched firmware: memory sections were recorded
+and `mc0` still never appeared. And even with EDAC built in, a CPU-class code such
+as 17 would not reach this path, because it is not a memory error. Any test that
+injects code 17 and expects `ce_count` to increment is asking for two incompatible
+things.
+
+**What to count instead.** A test that needs "N corrected errors were recorded"
+can count the fault-monitor's own records over the measurement window. Remember
+the log length when the window opens, then count only what was appended:
+
+```sh
+baseline=$(wc -l < /var/log/ras/faults.jsonl)      # when the window opens
+# ... run the test ...
+tail -n +$((baseline + 1)) /var/log/ras/faults.jsonl | grep -c RERI_FAULT
+```
+
+Scoping by the baseline matters: the log is append-only and survives reboots, so
+an unscoped count includes every earlier run. This is what our own availability
+run used in place of `ce_count`, and it agreed with the injection count 4/4.
 
 **The recorded event cannot identify which RERI code was injected.** See
 [the warning above](#-the-reri-error-code-does-not-survive-into-the-log). Any
