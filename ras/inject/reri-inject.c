@@ -145,6 +145,14 @@ int main(int argc, char **argv)
 	if (argc > 0 && argv[0])
 		prog = argv[0];
 
+	/*
+	 * The test procedure pipes this through tee to keep a record of when each
+	 * injection fired. stdout is fully buffered when it is a pipe, so without
+	 * this the file stays empty until the process exits - which, for
+	 * `-n 4 -i 720`, is thirty-six minutes after the first injection.
+	 */
+	setvbuf(stdout, NULL, _IOLBF, 0);
+
 	while ((opt = getopt(argc, argv, "e:s:t:A:a:H:r:B:n:i:fNvh")) != -1) {
 		switch (opt) {
 		case 'e': ec = strtoul(optarg, NULL, 0); break;
