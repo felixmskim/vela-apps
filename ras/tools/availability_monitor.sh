@@ -101,7 +101,7 @@ done
 echo "집계 중 ..."
 python3 - "$FAULTLOG" "$BASELINE" "$GAPS" "$ROUNDS" "$SUMMARY" \
          "$START" "$DURATION" "$THRESHOLD" "${INJECT_TIMES:-}" <<'PYEOF'
-import csv, json, sys, time
+import csv, json, os, sys, time
 
 faultlog, baseline, gaps_csv, rounds_csv, summary_out, start, duration, threshold, inject_times = sys.argv[1:10]
 baseline = int(baseline); start = float(start)
@@ -205,6 +205,17 @@ with open(rounds_csv, "w", newline="") as fp:
 
 downtime = union_seconds(gap_rows) if gap_rows else 0.0
 avail = (duration - downtime) / duration * 100.0
+
+# 퍼블리셔가 중간에 사라진 창은 고장을 잰 것이 아니다. 그 사실을 숨기고 숫자만
+# 내보내면, 워크로드가 스스로 끝났을 뿐인데 가용성 미달로 읽힌다.
+lost = []
+try:
+    import json as _json
+    _sum = _json.load(open(os.path.join(os.path.dirname(gaps_csv), "gaps-summary.json")))
+    lost = _sum.get("topics_lost_publisher", [])
+except Exception:
+    pass
+
 lines = [
     "TC.10.007 가용성 집계",
     f"  측정 구간      : {duration:.0f}s ({time.strftime('%H:%M:%S', time.localtime(start))} 시작)",
@@ -217,6 +228,14 @@ lines = [
     "  주의: T_rec 은 데몬이 대응을 결정한 시각(emit_wall_time)이다. 데몬은 observe-only이므로",
     "        실제 복구는 일어나지 않는다. MTTR 은 '대응 결정까지의 시간'으로 읽어야 한다.",
 ]
+if lost:
+    lines[0] = "TC.10.007 가용성 집계  ** 측정 무효 **"
+    lines += [
+        "",
+        "  !! 측정 창 도중 퍼블리셔가 사라진 토픽: " + ", ".join(lost),
+        "     워크로드가 스스로 끝났는지 확인하라. 그 공백은 고장이 아니므로 위 가용성",
+        "     수치를 판정 근거로 쓸 수 없다. 워크로드 수명을 측정 구간보다 길게 잡고 다시 측정한다.",
+    ]
 text = "\n".join(lines)
 print(text)
 open(summary_out, "w").write(text + "\n")
